@@ -127,11 +127,25 @@ void loop() {
       case 0x5D: Keyboard.write(0x5C); break;
       case 0x52: Keyboard.write('\''); break;
       case 0x4A: Keyboard.write('/'); break;
-      case 0x51: Keyboard.write(0xDC); break;
+      
+      //case 0x51: Keyboard.write(0xDC); break;
       case 0x4E: Keyboard.write('-'); break;
       case 0x55: Keyboard.write('='); break;
       case 0x41: Keyboard.write(','); break;
       case 0x49: Keyboard.write('.'); break;
+
+ case 0x51: 
+        if (shiftAtivo) {
+          // INTERROGAÇÃO (Já sabemos que este funciona!)
+          Keyboard.press(KEY_RIGHT_ALT); 
+          Keyboard.write('w');
+          Keyboard.release(KEY_RIGHT_ALT);
+        } else {
+          // BARRA: Vamos tentar o código de tecla que o Pi associa à barra
+          // Se o '/' puro falha, tentamos o atalho AltGr + Q de novo ou o ASCII direto
+          Keyboard.write(0xDC); // Este é o código HID para a barra '/' em muitos teclados
+        }
+        break;
     }
     
     // Reseta a flag estendida para a próxima tecla
