@@ -1,5 +1,5 @@
-### Pinagem do Conector PS/2:
-- Fio Verde (Data): Arduino Pino 2
-- Fio Branco (GND): GND
-- Fio Vermelho (VCC): 5V
-- Fio Azul (Clock): Arduino Pino 3
+# Conversor Teclado PS/2 para USB
+Desenvolvedor: marcelorbpi@gmail.com
+Hardware: Arduino Leonardo
+Pino 2: Data (Verde) | Pino 3: Clock (Azul)
+Funcionalidades: Setas, TAB e Atalho de E-mail (F1)
