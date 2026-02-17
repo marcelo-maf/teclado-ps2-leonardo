@@ -1,27 +1,47 @@
-/* * Projeto: Conversor de Teclado PS/2 para USB (HID)
- * Desenvolvedor: Marcelo (marcelorbpi@gmail.com)
- * Data: 16/02/2026
- * Versão: 1.1 (Estabilidade de Setas e Documentação)
+/* * Desenvolvedor: Marcelo (marcelorbpi@gmail.com)
+ * Data: 16/02/2026 - Versão 1.6 (Restauração da 1.1 + Fix da Barra)
  */
 
-#include <Keyboard.h> 
+#include <Keyboard.h>
+#include <HID.h> // Necessário para a função de injeção bruta
 
-const int DataPin = 2; // Pino de dados do teclado
-const int IRQpin = 3;  // Pino de Clock (Interrupção) do teclado
+// --- ESTRUTURA PARA ENVIO BRUTO (FIX PARA BARRA \ NO PI) ---
+typedef struct {
+  uint8_t modifiers;
+  uint8_t reserved;
+  uint8_t keys[6];
+} KeyReport_t;
 
-volatile uint8_t scanCode = 0;   // Armazena o byte bruto recebido
-volatile bool dataReady = false; // Flag: indica que um byte foi processado
-volatile int bitCount = 0;      // Contador para os 11 bits do protocolo PS/2
-bool shiftAtivo = false;        // Monitora se Shift está pressionado
+void enviarTeclaBruta(uint8_t tecla, bool shift) {
+  KeyReport_t report;
+  report.reserved = 0;
+  report.modifiers = shift ? 0x02 : 0x00; // Shift Esquerdo
+  for (int i = 0; i < 6; i++) report.keys[i] = 0;
+  report.keys[0] = tecla;
+  HID().SendReport(2, &report, sizeof(KeyReport_t));
+}
 
-// Função de Interrupção: Captura os bits conforme o Clock do teclado cai (FALLING)
+void liberarTudoBruto() {
+  KeyReport_t report = {0, 0, {0,0,0,0,0,0}};
+  HID().SendReport(2, &report, sizeof(KeyReport_t));
+}
+// ---------------------------------------------------------
+
+const int DataPin = 2;
+const int IRQpin = 3;
+
+volatile uint8_t scanCode = 0;
+volatile bool dataReady = false;
+volatile int bitCount = 0;
+bool shiftAtivo = false;
+
 void readBit() {
   int val = digitalRead(DataPin);
   if (bitCount >= 1 && bitCount <= 8) {
-    scanCode |= (val << (bitCount - 1)); // Reconstrói o byte bit a bit
+    scanCode |= (val << (bitCount - 1));
   }
   bitCount++;
-  if (bitCount == 11) { // Ao completar 11 bits, sinaliza leitura pronta
+  if (bitCount == 11) {
     dataReady = true;
     bitCount = 0;
   }
@@ -43,39 +63,25 @@ void loop() {
     static bool skipNext = false;
     static bool estendida = false;
 
-    // 1. Detecta prefixo de tecla estendida (Setas)
-    if (code == 0xE0) { 
-      estendida = true; 
-      return; 
-    }
+    if (code == 0xE0) { estendida = true; return; }
+    if (code == 0xF0) { skipNext = true; return; }
 
-    // 2. Detecta quando a tecla é solta
-    if (code == 0xF0) { 
-      skipNext = true; 
-      return; 
-    }
-
-    // 3. Processa a liberação da tecla
-    if (skipNext) { 
+    if (skipNext) {
       if (code == 0x12 || code == 0x59) {
         shiftAtivo = false;
         Keyboard.release(code == 0x12 ? KEY_LEFT_SHIFT : KEY_RIGHT_SHIFT);
       }
       if (code == 0x14) Keyboard.release(KEY_LEFT_CTRL);
       
-      skipNext = false; 
-      // Não resetamos 'estendida' aqui para não quebrar a sequência
-      return; 
+      liberarTudoBruto(); // Garante soltar a barra bruta
+      skipNext = false;
+      return;
     }
 
-    // 4. Ignora o Shift Falso (0x12) que vem com as setas
-    if (estendida && (code == 0x12 || code == 0x59)) {
-       return; 
-    }
+    if (estendida && (code == 0x12 || code == 0x59)) { return; }
 
-    // 5. Mapeamento das teclas
     switch (code) {
-      // SETAS DE NAVEGAÇÃO
+      // SETAS DE NAVEGAÇÃO (Recuperadas!)
       case 0x75: Keyboard.write(KEY_UP_ARROW); break;    
       case 0x72: Keyboard.write(KEY_DOWN_ARROW); break;  
       case 0x6B: Keyboard.write(KEY_LEFT_ARROW); break;  
@@ -88,7 +94,7 @@ void loop() {
       case 0x5A: Keyboard.write(KEY_RETURN); break;
       case 0x66: Keyboard.write(KEY_BACKSPACE); break;
       case 0x29: Keyboard.write(' '); break;
-      case 0x0D: Keyboard.write(KEY_TAB); break; // Adiciona o TAB para o terminal
+      case 0x0D: Keyboard.write(KEY_TAB); break; 
 
       // E-MAIL (F1)
       case 0x05: 
@@ -127,28 +133,32 @@ void loop() {
       case 0x5D: Keyboard.write(0x5C); break;
       case 0x52: Keyboard.write('\''); break;
       case 0x4A: Keyboard.write('/'); break;
-      
-      //case 0x51: Keyboard.write(0xDC); break;
-      case 0x4E: Keyboard.write('-'); break;
-      case 0x55: Keyboard.write('='); break;
-      case 0x41: Keyboard.write(','); break;
-      case 0x49: Keyboard.write('.'); break;
 
- case 0x51: 
+      // --- A BARRA INVERTIDA (0x61) - AGORA USANDO BYPASS ---
+      case 0x61: 
+        Keyboard.releaseAll(); 
+        // 100 é o Usage ID para a tecla da Barra Invertida ABNT2
+        enviarTeclaBruta(100, shiftAtivo); 
+        delay(5);
+        liberarTudoBruto();
+        break;
+
+      case 0x51: 
         if (shiftAtivo) {
-          // INTERROGAÇÃO (Já sabemos que este funciona!)
           Keyboard.press(KEY_RIGHT_ALT); 
           Keyboard.write('w');
           Keyboard.release(KEY_RIGHT_ALT);
         } else {
-          // BARRA: Vamos tentar o código de tecla que o Pi associa à barra
-          // Se o '/' puro falha, tentamos o atalho AltGr + Q de novo ou o ASCII direto
-          Keyboard.write(0xDC); // Este é o código HID para a barra '/' em muitos teclados
+          Keyboard.write(0xDC); 
         }
         break;
+
+      case 0x4E: Keyboard.write('-'); break;
+      case 0x55: Keyboard.write('='); break;
+      case 0x41: Keyboard.write(','); break;
+      case 0x49: Keyboard.write('.'); break;
     }
     
-    // Reseta a flag estendida para a próxima tecla
     estendida = false;
   }
 }
